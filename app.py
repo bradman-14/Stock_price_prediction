@@ -17,11 +17,17 @@ st.markdown("### Deep Learning & Sentiment-Driven Market Analysis")
 # --- Inputs in Sidebar ---
 st.sidebar.header("Configuration")
 API_KEY = st.sidebar.text_input("GNews API Key", value="acd998d203c26fb5e57e32f5da6a8e91", type="password")
-selected_tickers = st.sidebar.multiselect(
-    "Select Tickers", 
-    ["HDFCBANK.NS", "RELIANCE.NS", "AAPL", "TSLA", "META", "INFY.NS", "TATASTEEL.NS"],
-    default=["HDFCBANK.NS", "RELIANCE.NS", "AAPL"]
+
+# --- Using text_input for ANY ticker. User can separate by commas.
+ticker_input = st.sidebar.text_input(
+    "Enter Tickers (Separated by commas)", 
+    value="AAPL, RELIANCE.NS, TSLA", 
+    help="Example: AAPL, BTC-USD, RELIANCE.NS, GOOG"
 )
+
+# Convert string input into a clean list of tickers
+selected_tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+
 lookback = 60
 
 class UltimateTradingBot:
@@ -44,16 +50,23 @@ class UltimateTradingBot:
             else: verdict = "😐 Neutral"
             return round(score, 2), verdict
         except:
-            return 0.0, "Limit Reached"
+            return 0.0, "Limit/Error"
 
     def run_analysis(self, ticker):
+        # Fetch data for the specific ticker
         df = yf.download(ticker, period="2y", interval="1d", progress=False)
-        if df.empty: return None
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        if df.empty: 
+            return None
+        
+        # Handling yfinance MultiIndex columns if necessary
+        if isinstance(df.columns, pd.MultiIndex): 
+            df.columns = df.columns.get_level_values(0)
         
         score, word = self.get_sentiment_details(ticker)
         data = df[['Close']].values
         scaled_data = self.scaler.fit_transform(data)
+        
+        # Add sentiment as secondary feature
         sent_feat = np.full((len(scaled_data), 1), score)
         combined = np.hstack((scaled_data, sent_feat))
 
@@ -63,7 +76,7 @@ class UltimateTradingBot:
             y.append(scaled_data[i, 0])
         X, y = np.array(X), np.array(y)
 
-        # Build & Train (Same as your local code)
+        # Model architecture
         model = Sequential([
             LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
             Dropout(0.2),
@@ -71,8 +84,9 @@ class UltimateTradingBot:
             Dense(1)
         ])
         model.compile(optimizer='adam', loss='mse')
-        model.fit(X, y, epochs=10, batch_size=32, verbose=0) # Epochs slightly reduced for web speed
+        model.fit(X, y, epochs=8, batch_size=32, verbose=0) 
 
+        # Prediction logic
         last_win = combined[-lookback:].reshape(1, lookback, 2)
         pred = model.predict(last_win, verbose=0)
         final_pred = self.scaler.inverse_transform(pred)[0][0]
@@ -92,33 +106,45 @@ class UltimateTradingBot:
 
 # --- Execution ---
 if st.sidebar.button("Run Global Analysis"):
-    bot = UltimateTradingBot()
-    all_results = []
-    
-    with st.spinner("Engaging Neural Networks..."):
-        for s in selected_tickers:
-            res = bot.run_analysis(s)
-            if res: all_results.append(res)
+    if not selected_tickers:
+        st.error("Please enter at least one ticker symbol.")
+    else:
+        bot = UltimateTradingBot()
+        all_results = []
+        
+        # Create a progress bar for better UX
+        progress_bar = st.progress(0)
+        
+        for idx, s in enumerate(selected_tickers):
+            with st.spinner(f"Analyzing {s}..."):
+                res = bot.run_analysis(s)
+                if res: 
+                    all_results.append(res)
+                else:
+                    st.warning(f"Ticker '{s}' not found or no data available.")
+            progress_bar.progress((idx + 1) / len(selected_tickers))
 
-    # 1. Show Graphs
-    st.subheader("Technical Analysis Graphs")
-    cols = st.columns(len(all_results))
-    for idx, r in enumerate(all_results):
-        with st.container():
-            fig, ax = plt.subplots(figsize=(6, 4))
-            ax.plot(r['History'].values, color='#2c3e50', linewidth=2)
-            ax.axhline(y=r['Target'], color='#e74c3c', linestyle='--')
-            ax.set_title(f"{r['Ticker']} Trend")
-            st.pyplot(fig)
+        if all_results:
+            # 1. Show Table FIRST for quick review
+            st.subheader("Final Decision Dashboard")
+            summary_data = []
+            for r in all_results:
+                risk = "🔴 High" if abs(r['Move']) > 3 else "🟡 Mod" if abs(r['Move']) > 1.5 else "🟢 Low"
+                summary_data.append([r['Ticker'], f"{r['Price']:.2f}", f"{r['Target']:.2f}", f"{r['Move']:+.2f}%", r['Sent_Mood'], risk, r['Advice']])
 
-    # 2. Show Table
-    st.subheader("Final Decision Dashboard")
-    summary_data = []
-    for r in all_results:
-        risk = "🔴 High" if abs(r['Move']) > 3 else "🟡 Mod" if abs(r['Move']) > 1.5 else "🟢 Low"
-        summary_data.append([r['Ticker'], f"{r['Price']:.2f}", f"{r['Target']:.2f}", f"{r['Move']:+.2f}%", r['Sent_Mood'], risk, r['Advice']])
+            df_final = pd.DataFrame(summary_data, columns=["Ticker", "Price", "Target", "Move", "Sentiment", "Risk", "Verdict"])
+            st.table(df_final)
 
-    df_final = pd.DataFrame(summary_data, columns=["Ticker", "Price", "Target", "Move", "Sentiment", "Risk", "Verdict"])
-    st.table(df_final)
-
-
+            # 2. Show Graphs in a Grid (max 2 per row to look nice)
+            st.subheader("Technical Analysis Graphs")
+            graph_cols = st.columns(2)
+            for idx, r in enumerate(all_results):
+                with graph_cols[idx % 2]:
+                    fig, ax = plt.subplots(figsize=(8, 5))
+                    ax.plot(r['History'].values, color='#2c3e50', linewidth=2, label="History")
+                    ax.axhline(y=r['Target'], color='#e74c3c', linestyle='--', label=f"Target: {r['Target']:.2f}")
+                    ax.set_title(f"{r['Ticker']} Price Action")
+                    ax.legend()
+                    st.pyplot(fig)
+        else:
+            st.error("No valid data retrieved for the tickers provided.")
