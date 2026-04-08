@@ -16,22 +16,40 @@ st.title("STOCK PRICE PREDICTOR AGENT")
 st.markdown("### Deep Learning & Sentiment-Driven Market Analysis")
 
 # --- Security: API Key Management ---
-# It first checks Streamlit Cloud Secrets, then falls back to sidebar for local testing.
 if "GNEWS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GNEWS_API_KEY"]
 else:
     API_KEY = st.sidebar.text_input("GNews API Key (Manual Entry)", type="password")
 
+# --- Helper Function: Ticker Search ---
+def get_ticker_from_name(query):
+    """Attempts to resolve a company name to a Yahoo Finance ticker."""
+    query = query.strip()
+    # If it already looks like a ticker (all caps, no spaces), return it
+    if query.isupper() and " " not in query:
+        return query
+    
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=5).json()
+        # Grab the first symbol found in the 'quotes' list
+        ticker = response['quotes'][0]['symbol']
+        return ticker
+    except:
+        return query # Fallback to original input if search fails
+
 # --- Sidebar Configuration ---
 st.sidebar.header("Configuration")
 ticker_input = st.sidebar.text_input(
-    "Enter Tickers (Separated by commas)", 
-    value="AAPL, RELIANCE.NS, TSLA", 
-    help="Example: AAPL, BTC-USD, RELIANCE.NS, GOOG"
+    "Enter Company Names or Tickers", 
+    value="Apple, Reliance, Tesla", 
+    help="You can type names like 'Tata Motors' or tickers like 'AAPL'"
 )
 
-# Convert string input into a clean list of tickers
-selected_tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
+# Convert string input into a list of names/tickers
+raw_inputs = [t.strip() for t in ticker_input.split(",") if t.strip()]
+
 lookback = 60
 
 class UltimateTradingBot:
@@ -39,7 +57,7 @@ class UltimateTradingBot:
         self.sia = SentimentIntensityAnalyzer()
         self.scaler = MinMaxScaler(feature_range=(0, 1))
 
-    @st.cache_data(ttl=3600) # Caches news for 1 hour to save API limit
+    @st.cache_data(ttl=3600)
     def get_sentiment_details(_self, ticker, api_key):
         query = ticker.split('.')[0]
         url = f"https://gnews.io/api/v4/search?q={query}&lang=en&token={api_key}&max=5"
@@ -79,8 +97,8 @@ class UltimateTradingBot:
             y.append(scaled_data[i, 0])
         X, y = np.array(X), np.array(y)
 
-        # 4. Model (Optimized for Streamlit Cloud RAM)
-        tf.keras.backend.clear_session() # Clears memory before training new stock
+        # 4. Model 
+        tf.keras.backend.clear_session()
         model = Sequential([
             LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
             Dropout(0.2),
@@ -97,7 +115,6 @@ class UltimateTradingBot:
         last_price = df['Close'].iloc[-1].item()
         move = ((final_pred - last_price) / last_price) * 100
         
-        # Verdict Logic
         if move > 1.2 and score > 0.1: advice = "STRONG BUY"
         elif move > 0.5: advice = "BUY / HOLD"
         elif move < -1.2: advice = "SELL / EXIT"
@@ -113,24 +130,31 @@ class UltimateTradingBot:
 if st.sidebar.button("Run Global Analysis"):
     if not API_KEY:
         st.error("Missing API Key! Please add it to Streamlit Secrets or sidebar.")
-    elif not selected_tickers:
-        st.error("Please enter at least one ticker symbol.")
+    elif not raw_inputs:
+        st.error("Please enter at least one company or ticker.")
     else:
         bot = UltimateTradingBot()
         all_results = []
         progress_bar = st.progress(0)
         
-        for idx, s in enumerate(selected_tickers):
+        # RESOLUTION STEP: Convert names to tickers
+        resolved_tickers = []
+        with st.spinner("Resolving company names to tickers..."):
+            for item in raw_inputs:
+                ticker = get_ticker_from_name(item)
+                resolved_tickers.append(ticker)
+        
+        # Main Analysis Loop
+        for idx, s in enumerate(resolved_tickers):
             with st.spinner(f"AI is processing {s}..."):
                 res = bot.run_analysis(s)
                 if res: 
                     all_results.append(res)
                 else:
-                    st.warning(f"Ticker '{s}' not found.")
-            progress_bar.progress((idx + 1) / len(selected_tickers))
+                    st.warning(f"Could not find data for '{s}'.")
+            progress_bar.progress((idx + 1) / len(resolved_tickers))
 
         if all_results:
-            # Table Dashboard
             st.subheader("Final Decision Dashboard")
             summary_data = []
             for r in all_results:
@@ -140,7 +164,6 @@ if st.sidebar.button("Run Global Analysis"):
             df_final = pd.DataFrame(summary_data, columns=["Ticker", "Price", "Target", "Move", "Sentiment", "Risk", "Verdict"])
             st.table(df_final)
 
-            # Grid for Graphs
             st.subheader("Technical Analysis Graphs")
             graph_cols = st.columns(2)
             for idx, r in enumerate(all_results):
