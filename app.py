@@ -8,17 +8,22 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
+import tensorflow as tf
 
 # --- Page Setup ---
-st.set_page_config(page_title="AI Stock Oracle", layout="wide")
-st.title("🚀 PRO-TRADER AI COMMAND DASHBOARD")
+st.set_page_config(page_title="Stock Predictor", layout="wide")
+st.title("STOCK PRICE PREDICTOR AGENT")
 st.markdown("### Deep Learning & Sentiment-Driven Market Analysis")
 
-# --- Inputs in Sidebar ---
-st.sidebar.header("Configuration")
-API_KEY = st.sidebar.text_input("GNews API Key", value="acd998d203c26fb5e57e32f5da6a8e91", type="password")
+# --- Security: API Key Management ---
+# It first checks Streamlit Cloud Secrets, then falls back to sidebar for local testing.
+if "GNEWS_API_KEY" in st.secrets:
+    API_KEY = st.secrets["GNEWS_API_KEY"]
+else:
+    API_KEY = st.sidebar.text_input("GNews API Key (Manual Entry)", type="password")
 
-# --- Using text_input for ANY ticker. User can separate by commas.
+# --- Sidebar Configuration ---
+st.sidebar.header("Configuration")
 ticker_input = st.sidebar.text_input(
     "Enter Tickers (Separated by commas)", 
     value="AAPL, RELIANCE.NS, TSLA", 
@@ -27,7 +32,6 @@ ticker_input = st.sidebar.text_input(
 
 # Convert string input into a clean list of tickers
 selected_tickers = [t.strip().upper() for t in ticker_input.split(",") if t.strip()]
-
 lookback = 60
 
 class UltimateTradingBot:
@@ -35,38 +39,37 @@ class UltimateTradingBot:
         self.sia = SentimentIntensityAnalyzer()
         self.scaler = MinMaxScaler(feature_range=(0, 1))
 
-    def get_sentiment_details(self, ticker):
+    @st.cache_data(ttl=3600) # Caches news for 1 hour to save API limit
+    def get_sentiment_details(_self, ticker, api_key):
         query = ticker.split('.')[0]
-        url = f"https://gnews.io/api/v4/search?q={query}&lang=en&token={API_KEY}&max=5"
+        url = f"https://gnews.io/api/v4/search?q={query}&lang=en&token={api_key}&max=5"
         try:
             res = requests.get(url, timeout=5).json()
             articles = res.get("articles", [])
             if not articles: return 0.0, "😐 Neutral"
-            score = np.mean([self.sia.polarity_scores(a['title'])['compound'] for a in articles])
+            score = np.mean([_self.sia.polarity_scores(a['title'])['compound'] for a in articles])
             if score > 0.2: verdict = "🚀 Bullish"
             elif score > 0.05: verdict = "📈 Positive"
             elif score < -0.2: verdict = "📉 Panic/Fear"
             elif score < -0.05: verdict = "⚠️ Negative"
             else: verdict = "😐 Neutral"
-            return round(score, 2), verdict
+            return round(float(score), 2), verdict
         except:
             return 0.0, "Limit/Error"
 
     def run_analysis(self, ticker):
-        # Fetch data for the specific ticker
+        # 1. Fetch Data
         df = yf.download(ticker, period="2y", interval="1d", progress=False)
-        if df.empty: 
-            return None
-        
-        # Handling yfinance MultiIndex columns if necessary
+        if df.empty: return None
         if isinstance(df.columns, pd.MultiIndex): 
             df.columns = df.columns.get_level_values(0)
         
-        score, word = self.get_sentiment_details(ticker)
+        # 2. Get Sentiment
+        score, word = self.get_sentiment_details(ticker, API_KEY)
+        
+        # 3. Preprocessing
         data = df[['Close']].values
         scaled_data = self.scaler.fit_transform(data)
-        
-        # Add sentiment as secondary feature
         sent_feat = np.full((len(scaled_data), 1), score)
         combined = np.hstack((scaled_data, sent_feat))
 
@@ -76,7 +79,8 @@ class UltimateTradingBot:
             y.append(scaled_data[i, 0])
         X, y = np.array(X), np.array(y)
 
-        # Model architecture
+        # 4. Model (Optimized for Streamlit Cloud RAM)
+        tf.keras.backend.clear_session() # Clears memory before training new stock
         model = Sequential([
             LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
             Dropout(0.2),
@@ -86,13 +90,14 @@ class UltimateTradingBot:
         model.compile(optimizer='adam', loss='mse')
         model.fit(X, y, epochs=8, batch_size=32, verbose=0) 
 
-        # Prediction logic
+        # 5. Prediction
         last_win = combined[-lookback:].reshape(1, lookback, 2)
         pred = model.predict(last_win, verbose=0)
         final_pred = self.scaler.inverse_transform(pred)[0][0]
         last_price = df['Close'].iloc[-1].item()
         move = ((final_pred - last_price) / last_price) * 100
         
+        # Verdict Logic
         if move > 1.2 and score > 0.1: advice = "STRONG BUY"
         elif move > 0.5: advice = "BUY / HOLD"
         elif move < -1.2: advice = "SELL / EXIT"
@@ -106,26 +111,26 @@ class UltimateTradingBot:
 
 # --- Execution ---
 if st.sidebar.button("Run Global Analysis"):
-    if not selected_tickers:
+    if not API_KEY:
+        st.error("Missing API Key! Please add it to Streamlit Secrets or sidebar.")
+    elif not selected_tickers:
         st.error("Please enter at least one ticker symbol.")
     else:
         bot = UltimateTradingBot()
         all_results = []
-        
-        # Create a progress bar for better UX
         progress_bar = st.progress(0)
         
         for idx, s in enumerate(selected_tickers):
-            with st.spinner(f"Analyzing {s}..."):
+            with st.spinner(f"AI is processing {s}..."):
                 res = bot.run_analysis(s)
                 if res: 
                     all_results.append(res)
                 else:
-                    st.warning(f"Ticker '{s}' not found or no data available.")
+                    st.warning(f"Ticker '{s}' not found.")
             progress_bar.progress((idx + 1) / len(selected_tickers))
 
         if all_results:
-            # 1. Show Table FIRST for quick review
+            # Table Dashboard
             st.subheader("Final Decision Dashboard")
             summary_data = []
             for r in all_results:
@@ -135,16 +140,17 @@ if st.sidebar.button("Run Global Analysis"):
             df_final = pd.DataFrame(summary_data, columns=["Ticker", "Price", "Target", "Move", "Sentiment", "Risk", "Verdict"])
             st.table(df_final)
 
-            # 2. Show Graphs in a Grid (max 2 per row to look nice)
+            # Grid for Graphs
             st.subheader("Technical Analysis Graphs")
             graph_cols = st.columns(2)
             for idx, r in enumerate(all_results):
                 with graph_cols[idx % 2]:
                     fig, ax = plt.subplots(figsize=(8, 5))
-                    ax.plot(r['History'].values, color='#2c3e50', linewidth=2, label="History")
-                    ax.axhline(y=r['Target'], color='#e74c3c', linestyle='--', label=f"Target: {r['Target']:.2f}")
-                    ax.set_title(f"{r['Ticker']} Price Action")
+                    ax.plot(r['History'].values, color='#2c3e50', linewidth=2, label="Price History")
+                    ax.axhline(y=r['Target'], color='#e74c3c', linestyle='--', label=f"AI Target: {r['Target']:.2f}")
+                    ax.set_title(f"{r['Ticker']} Forecast")
+                    ax.set_facecolor('#fdfdfd')
                     ax.legend()
                     st.pyplot(fig)
         else:
-            st.error("No valid data retrieved for the tickers provided.")
+            st.error("No data could be retrieved.")
