@@ -26,7 +26,7 @@ To make the app user-friendly, I implemented a search layer that allows users to
 ---
 
 
-## 📊 Visual Features
+## Visual Features
 * **Interactive Dashboard:** A clean, tabular summary of Prices, AI Targets, and Risk Levels.
 * **Dynamic Charting:** Matplotlib-generated graphs that overlay the **AI-Predicted Target Line** on top of historical price action.
 * **Risk Categorization:** Real-time calculation of volatility to label stocks as 🟢 Low, 🟡 Moderate, or 🔴 High Risk.
