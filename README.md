@@ -25,15 +25,6 @@ To make the app user-friendly, I implemented a search layer that allows users to
 
 ---
 
-## Challenges Overcome (The "Mega-Cap" Problem)
-During development, a significant issue was discovered: **Mega-Cap stocks (like Apple, Tesla, and Reliance)** often return "Multi-Index" dataframes that break standard scrapers, resulting in `NaN` (Not a Number) errors.
-
-**I solved this by:**
-* **Data Flattening:** Implementing a custom layer to strip complex index levels from Yahoo Finance data.
-* **Resilient Pipelines:** Using Forward-Fill (`ffill`) logic to handle data gaps during market transitions.
-* **Memory Optimization:** Forcing TensorFlow to clear its backend after every analysis to ensure the app remains fast on cloud servers.
-
----
 
 ## 📊 Visual Features
 * **Interactive Dashboard:** A clean, tabular summary of Prices, AI Targets, and Risk Levels.
