@@ -1,4 +1,4 @@
-# PRO-TRADER AI COMMAND DASHBOARD
+# STOCK PRICE PREDICTION TOOL
 ### *An Intelligent Financial Agent for Predictive Market Analysis*
 
 ## Project Overview
