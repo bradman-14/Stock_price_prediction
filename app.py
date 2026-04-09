@@ -76,28 +76,24 @@ class UltimateTradingBot:
             return 0.0, "Limit/Error"
             
     def run_analysis(self, ticker):
-        # 1. Fetch Data with auto_adjust to ensure clean columns
+        # 1. Fetch Data
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
-        
-        if df.empty: 
-            return None
-        
-        # --- THE FIX FOR NaN ---
-        # If yfinance returns multiple levels (MultiIndex), we grab only the 'Close' column
+        if df.empty: return None
+
+        # --- FIX FOR nan PRICE ---
+        # Force the columns to be simple (strips the ticker name from the header)
         if isinstance(df.columns, pd.MultiIndex):
-            # We strip the ticker name from the column index
             df.columns = df.columns.get_level_values(0)
         
-        # Ensure we are working with a Series, not a DataFrame with one column
-        if 'Close' not in df.columns:
-            return None
-            
+        # Ensure we are using the 'Close' column and remove any empty rows
+        df = df[['Close']].ffill().dropna()
+        # -------------------------
+        
         # 2. Get Sentiment
         score, word = self.get_sentiment_details(ticker, API_KEY)
         
         # 3. Preprocessing
-        # We use .fillna(method='ffill') to ensure no random NaNs break the model
-        data = df[['Close']].ffill().values
+        data = df.values
         scaled_data = self.scaler.fit_transform(data)
         sent_feat = np.full((len(scaled_data), 1), score)
         combined = np.hstack((scaled_data, sent_feat))
@@ -119,25 +115,34 @@ class UltimateTradingBot:
         model.compile(optimizer='adam', loss='mse')
         model.fit(X, y, epochs=8, batch_size=32, verbose=0) 
 
-        # 5. Prediction
+        # 5. Prediction & Final Value Cleaning
         last_win = combined[-lookback:].reshape(1, lookback, 2)
         pred = model.predict(last_win, verbose=0)
         
-        # Convert values to clean floats to avoid "NaN" in the table
+        # CLEANING STEP: Force everything to be a standard Python float
         final_pred = float(self.scaler.inverse_transform(pred)[0][0])
+        
+        # Extract the last valid price. We use .item() to ensure it's a number, not a list.
         last_price = float(df['Close'].iloc[-1])
         
+        # Calculate Move - now that last_price isn't nan, this will work!
         move = ((final_pred - last_price) / last_price) * 100
         
+        # Verdict Logic
         if move > 1.2 and score > 0.1: advice = "STRONG BUY"
         elif move > 0.5: advice = "BUY / HOLD"
         elif move < -1.2: advice = "SELL / EXIT"
         else: advice = "NEUTRAL"
 
         return {
-            "Ticker": ticker, "Price": last_price, "Target": final_pred,
-            "Move": move, "Sent_Score": score, "Sent_Mood": word,
-            "Advice": advice, "History": df['Close'].tail(100)
+            "Ticker": ticker, 
+            "Price": last_price, 
+            "Target": final_pred,
+            "Move": move, 
+            "Sent_Score": score, 
+            "Sent_Mood": word,
+            "Advice": advice, 
+            "History": df['Close'].tail(100)
         }
 
      
