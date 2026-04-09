@@ -74,8 +74,8 @@ class UltimateTradingBot:
             return round(float(score), 2), verdict
         except:
             return 0.0, "Limit/Error"
-
-   def run_analysis(self, ticker):
+            
+    def run_analysis(self, ticker):
         # 1. Fetch Data with auto_adjust to ensure clean columns
         df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
         
@@ -139,6 +139,8 @@ class UltimateTradingBot:
             "Move": move, "Sent_Score": score, "Sent_Mood": word,
             "Advice": advice, "History": df['Close'].tail(100)
         }
+
+     
 
 # --- Execution ---
 if st.sidebar.button("Run Global Analysis"):
