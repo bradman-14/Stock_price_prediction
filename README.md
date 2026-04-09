@@ -1,7 +1,7 @@
 # PRO-TRADER AI COMMAND DASHBOARD
 ### *An Intelligent Financial Agent for Predictive Market Analysis*
 
-## 📝 Project Overview
+## Project Overview
 The **Pro-Trader AI Command Dashboard** is a high-performance financial tool designed to bridge the gap between raw market data and actionable intelligence. In a world where stock prices are influenced as much by news headlines as by historical patterns, this project implements a **Multi-Modal AI approach** to forecast price targets.
 
 By combining **Deep Learning (LSTM)** for technical patterns and **Natural Language Processing (NLP)** for market sentiment, the dashboard offers a holistic view of a stock's potential "Next Move."
