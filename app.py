@@ -75,18 +75,29 @@ class UltimateTradingBot:
         except:
             return 0.0, "Limit/Error"
 
-    def run_analysis(self, ticker):
-        # 1. Fetch Data
-        df = yf.download(ticker, period="2y", interval="1d", progress=False)
-        if df.empty: return None
-        if isinstance(df.columns, pd.MultiIndex): 
+   def run_analysis(self, ticker):
+        # 1. Fetch Data with auto_adjust to ensure clean columns
+        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
+        
+        if df.empty: 
+            return None
+        
+        # --- THE FIX FOR NaN ---
+        # If yfinance returns multiple levels (MultiIndex), we grab only the 'Close' column
+        if isinstance(df.columns, pd.MultiIndex):
+            # We strip the ticker name from the column index
             df.columns = df.columns.get_level_values(0)
         
+        # Ensure we are working with a Series, not a DataFrame with one column
+        if 'Close' not in df.columns:
+            return None
+            
         # 2. Get Sentiment
         score, word = self.get_sentiment_details(ticker, API_KEY)
         
         # 3. Preprocessing
-        data = df[['Close']].values
+        # We use .fillna(method='ffill') to ensure no random NaNs break the model
+        data = df[['Close']].ffill().values
         scaled_data = self.scaler.fit_transform(data)
         sent_feat = np.full((len(scaled_data), 1), score)
         combined = np.hstack((scaled_data, sent_feat))
@@ -97,7 +108,7 @@ class UltimateTradingBot:
             y.append(scaled_data[i, 0])
         X, y = np.array(X), np.array(y)
 
-        # 4. Model 
+        # 4. Model Training
         tf.keras.backend.clear_session()
         model = Sequential([
             LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
@@ -111,8 +122,11 @@ class UltimateTradingBot:
         # 5. Prediction
         last_win = combined[-lookback:].reshape(1, lookback, 2)
         pred = model.predict(last_win, verbose=0)
-        final_pred = self.scaler.inverse_transform(pred)[0][0]
-        last_price = df['Close'].iloc[-1].item()
+        
+        # Convert values to clean floats to avoid "NaN" in the table
+        final_pred = float(self.scaler.inverse_transform(pred)[0][0])
+        last_price = float(df['Close'].iloc[-1])
+        
         move = ((final_pred - last_price) / last_price) * 100
         
         if move > 1.2 and score > 0.1: advice = "STRONG BUY"
