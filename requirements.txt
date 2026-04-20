@@ -7,3 +7,4 @@ matplotlib
 vaderSentiment
 scikit-learn
 tensorflow
+plotly
