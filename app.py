@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
@@ -23,16 +23,19 @@ else:
 # --- Ticker Search ---
 def get_ticker_from_name(query):
     query = query.strip()
-    if query.isupper() and " " not in query: return query
+    # Updated logic: convert to upper and search if not a direct match
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=5).json()
-        return response['quotes'][0]['symbol']
-    except: return query
+        if response['quotes']:
+            return response['quotes'][0]['symbol']
+    except:
+        pass
+    return query.upper()
 
 # --- Sidebar ---
-st.sidebar.header(" Strategy Controller")
+st.sidebar.header("Strategy Controller")
 ticker_input = st.sidebar.text_input("Tickers", value="Nvidia, Reliance, Apple")
 
 time_options = {
@@ -57,9 +60,9 @@ class UltimateTradingBot:
         try:
             res = requests.get(url, timeout=5).json()
             articles = res.get("articles", [])
-            if not articles: return 0.0, " Neutral"
+            if not articles: return 0.0, "Neutral"
             score = np.mean([_self.sia.polarity_scores(a['title'])['compound'] for a in articles])
-            return round(float(score), 2), ("🚀 Bullish" if score > 0.1 else "Bearish" if score < -0.1 else "Neutral")
+            return round(float(score), 2), ("Bullish" if score > 0.1 else "Bearish" if score < -0.1 else "Neutral")
         except: return 0.0, "API Error"
 
     def run_analysis(self, ticker, train_period):
@@ -124,36 +127,52 @@ if st.sidebar.button("Run Global Analysis"):
                 st.divider()
                 st.write(f"### {r['Ticker']} Visualization Suite")
                 
-                # --- Unified Tab System (Now including 10Y) ---
                 tabs = st.tabs(["1D", "1W", "1M", "1Y", "5Y", "10Y", "MAX"])
                 
-                # Function to generate consistent professional plots
-                def plot_stock(ticker, period, interval, target):
+                # Plotly function for interactive charts with proper dates
+                def plot_interactive_stock(ticker, period, interval, target):
                     d = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
                     if d.empty: return st.warning(f"No data for {period}")
                     if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
                     
-                    # Professional Styling
-                    plt.style.use('dark_background')
-                    fig, ax = plt.subplots(figsize=(12, 5))
-                    ax.plot(d['Close'].values, color='#00ff88', linewidth=2, label=f"Price ({period})")
+                    fig = go.Figure()
                     
-                    # Add Target Line to all tabs except 1D
+                    # Real Price Line
+                    fig.add_trace(go.Scatter(
+                        x=d.index, 
+                        y=d['Close'], 
+                        mode='lines', 
+                        name='Price', 
+                        line=dict(color='#00ff88', width=2)
+                    ))
+                    
+                    # AI Target Line
                     if period != "1d":
-                        ax.axhline(y=target, color='#ff3333', linestyle='--', linewidth=2, label=f"AI Target: {target:.2f}")
+                        fig.add_hline(
+                            y=target, 
+                            line_dash="dash", 
+                            line_color="#ff3333", 
+                            annotation_text=f"AI Target: {target:.2f}", 
+                            annotation_position="top left"
+                        )
                     
-                    ax.set_title(f"{ticker} - {period} View", color='white', fontsize=14)
-                    ax.grid(True, alpha=0.1, color='white')
-                    ax.legend(facecolor='#1e1e1e', edgecolor='white')
-                    st.pyplot(fig)
+                    fig.update_layout(
+                        title=f"{ticker} - {period} Analysis",
+                        template="plotly_dark",
+                        xaxis_title="Date",
+                        yaxis_title="Price",
+                        hovermode="x unified",
+                        height=500,
+                        margin=dict(l=20, r=20, t=50, b=20)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-                # Tab Execution
-                with tabs[0]: plot_stock(r['Ticker'], "1d", "5m", r['Target'])
-                with tabs[1]: plot_stock(r['Ticker'], "5d", "30m", r['Target'])
-                with tabs[2]: plot_stock(r['Ticker'], "1mo", "1h", r['Target'])
-                with tabs[3]: plot_stock(r['Ticker'], "1y", "1d", r['Target'])
-                with tabs[4]: plot_stock(r['Ticker'], "5y", "1d", r['Target'])
-                with tabs[5]: plot_stock(r['Ticker'], "10y", "1d", r['Target'])
-                with tabs[6]: plot_stock(r['Ticker'], "max", "1d", r['Target'])
+                with tabs[0]: plot_interactive_stock(r['Ticker'], "1d", "5m", r['Target'])
+                with tabs[1]: plot_interactive_stock(r['Ticker'], "5d", "30m", r['Target'])
+                with tabs[2]: plot_interactive_stock(r['Ticker'], "1mo", "1h", r['Target'])
+                with tabs[3]: plot_interactive_stock(r['Ticker'], "1y", "1d", r['Target'])
+                with tabs[4]: plot_interactive_stock(r['Ticker'], "5y", "1d", r['Target'])
+                with tabs[5]: plot_interactive_stock(r['Ticker'], "10y", "1d", r['Target'])
+                with tabs[6]: plot_interactive_stock(r['Ticker'], "max", "1d", r['Target'])
         else:
             st.error("Data error.")
