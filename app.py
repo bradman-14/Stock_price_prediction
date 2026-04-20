@@ -3,13 +3,13 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
-import plotly
 import plotly.graph_objects as go
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
+from datetime import datetime
 
 # --- Page Setup ---
 st.set_page_config(page_title="Pro-Trader AI", layout="wide")
@@ -24,7 +24,6 @@ else:
 # --- Ticker Search ---
 def get_ticker_from_name(query):
     query = query.strip()
-    # Updated logic: convert to upper and search if not a direct match
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -67,7 +66,23 @@ class UltimateTradingBot:
         except: return 0.0, "API Error"
 
     def run_analysis(self, ticker, train_period):
-        df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
+        # Check actual available history first
+        full_info = yf.Ticker(ticker)
+        hist_check = full_info.history(period="max")
+        
+        if hist_check.empty:
+            return None
+
+        # Logic for prompting user if history is shorter than requested
+        actual_years = len(hist_check) / 252
+        requested_years = 10 if train_period == "10y" else 5 if train_period == "5y" else 0
+        
+        if requested_years > 0 and actual_years < requested_years:
+            st.warning(f"{ticker} has only {actual_years:.1f} years of data. Training on full available history instead of {train_period}.")
+            df_train = hist_check
+        else:
+            df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
+
         if df_train.empty or len(df_train) < lookback: return None
         if isinstance(df_train.columns, pd.MultiIndex): df_train.columns = df_train.columns.get_level_values(0)
         
@@ -130,45 +145,28 @@ if st.sidebar.button("Run Global Analysis"):
                 
                 tabs = st.tabs(["1D", "1W", "1M", "1Y", "5Y", "10Y", "MAX"])
                 
-                # Plotly function for interactive charts with proper dates
                 def plot_interactive_stock(ticker, period, interval, target):
-                    d = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+                    # Special handling for 1D to get full day session
+                    if period == "1d":
+                        d = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
+                    else:
+                        d = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+                    
                     if d.empty: return st.warning(f"No data for {period}")
                     if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
                     
                     fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=d.index, y=d['Close'], mode='lines', name='Price', line=dict(color='#00ff88', width=2)))
                     
-                    # Real Price Line
-                    fig.add_trace(go.Scatter(
-                        x=d.index, 
-                        y=d['Close'], 
-                        mode='lines', 
-                        name='Price', 
-                        line=dict(color='#00ff88', width=2)
-                    ))
-                    
-                    # AI Target Line
                     if period != "1d":
-                        fig.add_hline(
-                            y=target, 
-                            line_dash="dash", 
-                            line_color="#ff3333", 
-                            annotation_text=f"AI Target: {target:.2f}", 
-                            annotation_position="top left"
-                        )
+                        fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", 
+                                      annotation_text=f"AI Target: {target:.2f}", annotation_position="top left")
                     
-                    fig.update_layout(
-                        title=f"{ticker} - {period} Analysis",
-                        template="plotly_dark",
-                        xaxis_title="Date",
-                        yaxis_title="Price",
-                        hovermode="x unified",
-                        height=500,
-                        margin=dict(l=20, r=20, t=50, b=20)
-                    )
+                    fig.update_layout(title=f"{ticker} - {period} Analysis", template="plotly_dark", 
+                                      xaxis_title="Time/Date", yaxis_title="Price", hovermode="x unified", height=500)
                     st.plotly_chart(fig, use_container_width=True)
 
-                with tabs[0]: plot_interactive_stock(r['Ticker'], "1d", "5m", r['Target'])
+                with tabs[0]: plot_interactive_stock(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_interactive_stock(r['Ticker'], "5d", "30m", r['Target'])
                 with tabs[2]: plot_interactive_stock(r['Ticker'], "1mo", "1h", r['Target'])
                 with tabs[3]: plot_interactive_stock(r['Ticker'], "1y", "1d", r['Target'])
