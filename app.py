@@ -11,46 +11,40 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
 
 # --- Page Setup ---
-st.set_page_config(page_title="Stock Predictor", layout="wide")
-st.title("STOCK PRICE PREDICTOR AGENT")
-st.markdown("### Deep Learning & Sentiment-Driven Market Analysis")
+st.set_page_config(page_title="Pro-Trader AI", layout="wide")
+st.title(" XTI-FINANCE: STRATEGIC ALPHA SUITE")
 
-# --- Security: API Key Management ---
+# --- API Key Management ---
 if "GNEWS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GNEWS_API_KEY"]
 else:
-    API_KEY = st.sidebar.text_input("GNews API Key (Manual Entry)", type="password")
+    API_KEY = st.sidebar.text_input("GNews API Key", type="password")
 
-# --- Helper Function: Ticker Search ---
+# --- Ticker Search Logic ---
 def get_ticker_from_name(query):
-    """Attempts to resolve a company name to a Yahoo Finance ticker."""
     query = query.strip()
-    # If it already looks like a ticker (all caps, no spaces), return it
-    if query.isupper() and " " not in query:
-        return query
-    
+    if query.isupper() and " " not in query: return query
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=5).json()
-        # Grab the first symbol found in the 'quotes' list
-        ticker = response['quotes'][0]['symbol']
-        return ticker
-    except:
-        return query # Fallback to original input if search fails
+        return response['quotes'][0]['symbol']
+    except: return query
 
-# --- Sidebar Configuration ---
-st.sidebar.header("Configuration")
-ticker_input = st.sidebar.text_input(
-    "Enter Company Names or Tickers", 
-    value="Apple, Reliance, Tesla", 
-    help="You can type names like 'Tata Motors' or tickers like 'AAPL'"
-)
+# --- Sidebar: Strategic Controls ---
+st.sidebar.header(" Strategy Controller")
+ticker_input = st.sidebar.text_input("Enter Tickers/Names", value="Nvidia, Reliance, Apple")
 
-# Convert string input into a list of names/tickers
+# Standard yfinance periods
+time_options = {
+    "1 Month": "1mo", "6 Months": "6mo", "1 Year": "1y", 
+    "2 Years": "2y", "5 Years": "5y", "10 Years": "10y", "MAX History": "max"
+}
+selected_period_label = st.sidebar.selectbox("AI Training Intelligence Depth", list(time_options.keys()), index=2)
+selected_period = time_options[selected_period_label]
+
 raw_inputs = [t.strip() for t in ticker_input.split(",") if t.strip()]
-
-lookback = 60
+lookback = 60 
 
 class UltimateTradingBot:
     def __init__(self):
@@ -66,34 +60,20 @@ class UltimateTradingBot:
             articles = res.get("articles", [])
             if not articles: return 0.0, "😐 Neutral"
             score = np.mean([_self.sia.polarity_scores(a['title'])['compound'] for a in articles])
-            if score > 0.2: verdict = "🚀 Bullish"
-            elif score > 0.05: verdict = "📈 Positive"
-            elif score < -0.2: verdict = "📉 Panic/Fear"
-            elif score < -0.05: verdict = "⚠️ Negative"
-            else: verdict = "😐 Neutral"
-            return round(float(score), 2), verdict
-        except:
-            return 0.0, "Limit/Error"
-            
-    def run_analysis(self, ticker):
-        # 1. Fetch Data
-        df = yf.download(ticker, period="2y", interval="1d", progress=False, auto_adjust=True)
-        if df.empty: return None
+            return round(float(score), 2), ("🚀 Bullish" if score > 0.1 else "📉 Bearish" if score < -0.1 else "😐 Neutral")
+        except: return 0.0, "API Error"
 
-        # --- FIX FOR nan PRICE ---
-        # Force the columns to be simple (strips the ticker name from the header)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+    def run_analysis(self, ticker, train_period):
+        # 1. Fetch training data using the standard period
+        df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
+        if df_train.empty or len(df_train) < lookback: return None
+        if isinstance(df_train.columns, pd.MultiIndex): df_train.columns = df_train.columns.get_level_values(0)
         
-        # Ensure we are using the 'Close' column and remove any empty rows
-        df = df[['Close']].ffill().dropna()
-        # -------------------------
-        
-        # 2. Get Sentiment
+        df_train = df_train[['Close']].ffill().dropna()
         score, word = self.get_sentiment_details(ticker, API_KEY)
         
-        # 3. Preprocessing
-        data = df.values
+        # 2. LSTM Pipeline
+        data = df_train.values
         scaled_data = self.scaler.fit_transform(data)
         sent_feat = np.full((len(scaled_data), 1), score)
         combined = np.hstack((scaled_data, sent_feat))
@@ -104,97 +84,78 @@ class UltimateTradingBot:
             y.append(scaled_data[i, 0])
         X, y = np.array(X), np.array(y)
 
-        # 4. Model Training
+        # 3. Model Training
         tf.keras.backend.clear_session()
         model = Sequential([
-            LSTM(50, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
+            LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
             Dropout(0.2),
-            LSTM(50),
+            LSTM(32),
             Dense(1)
         ])
         model.compile(optimizer='adam', loss='mse')
         model.fit(X, y, epochs=8, batch_size=32, verbose=0) 
 
-        # 5. Prediction & Final Value Cleaning
+        # 4. Predict based on training context
         last_win = combined[-lookback:].reshape(1, lookback, 2)
         pred = model.predict(last_win, verbose=0)
-        
-        # CLEANING STEP: Force everything to be a standard Python float
         final_pred = float(self.scaler.inverse_transform(pred)[0][0])
-        
-        # Extract the last valid price. We use .item() to ensure it's a number, not a list.
-        last_price = float(df['Close'].iloc[-1])
-        
-        # Calculate Move - now that last_price isn't nan, this will work!
+        last_price = float(df_train['Close'].iloc[-1])
         move = ((final_pred - last_price) / last_price) * 100
         
-        # Verdict Logic
-        if move > 1.2 and score > 0.1: advice = "STRONG BUY"
-        elif move > 0.5: advice = "BUY / HOLD"
-        elif move < -1.2: advice = "SELL / EXIT"
-        else: advice = "NEUTRAL"
-
         return {
-            "Ticker": ticker, 
-            "Price": last_price, 
-            "Target": final_pred,
-            "Move": move, 
-            "Sent_Score": score, 
-            "Sent_Mood": word,
-            "Advice": advice, 
-            "History": df['Close'].tail(100)
+            "Ticker": ticker, "Price": last_price, "Target": final_pred,
+            "Move": move, "Sent_Mood": word, "Train_Label": train_period
         }
 
-     
-
-# --- Execution ---
-if st.sidebar.button("Run Global Analysis"):
-    if not API_KEY:
-        st.error("Missing API Key! Please add it to Streamlit Secrets or sidebar.")
-    elif not raw_inputs:
-        st.error("Please enter at least one company or ticker.")
+# --- Main Execution ---
+if st.sidebar.button("Execute Strategic Analysis"):
+    if not API_KEY: st.error("Please enter GNews API Key.")
     else:
         bot = UltimateTradingBot()
         all_results = []
-        progress_bar = st.progress(0)
+        resolved_tickers = [get_ticker_from_name(item) for item in raw_inputs]
         
-        # RESOLUTION STEP: Convert names to tickers
-        resolved_tickers = []
-        with st.spinner("Resolving company names to tickers..."):
-            for item in raw_inputs:
-                ticker = get_ticker_from_name(item)
-                resolved_tickers.append(ticker)
-        
-        # Main Analysis Loop
-        for idx, s in enumerate(resolved_tickers):
-            with st.spinner(f"AI is processing {s}..."):
-                res = bot.run_analysis(s)
-                if res: 
-                    all_results.append(res)
-                else:
-                    st.warning(f"Could not find data for '{s}'.")
-            progress_bar.progress((idx + 1) / len(resolved_tickers))
+        for s in resolved_tickers:
+            with st.spinner(f"AI Learning {s} ({selected_period_label} patterns)..."):
+                res = bot.run_analysis(s, selected_period)
+                if res: all_results.append(res)
 
         if all_results:
-            st.subheader("Final Decision Dashboard")
-            summary_data = []
+            # 1. Summary Dashboard
+            st.subheader(f"📊 Market Intelligence Board (Memory: {selected_period_label})")
+            summary_data = [[r['Ticker'], f"{r['Price']:.2f}", f"{r['Target']:.2f}", f"{r['Move']:+.2f}%", r['Sent_Mood']] for r in all_results]
+            st.table(pd.DataFrame(summary_data, columns=["Ticker", "Last Price", "AI Target", "Exp. Move", "Sentiment"]))
+
+            # 2. Multi-Timeframe Visualization Terminal
             for r in all_results:
-                risk = "🔴 High" if abs(r['Move']) > 3 else "🟡 Mod" if abs(r['Move']) > 1.5 else "🟢 Low"
-                summary_data.append([r['Ticker'], f"{r['Price']:.2f}", f"{r['Target']:.2f}", f"{r['Move']:+.2f}%", r['Sent_Mood'], risk, r['Advice']])
-
-            df_final = pd.DataFrame(summary_data, columns=["Ticker", "Price", "Target", "Move", "Sentiment", "Risk", "Verdict"])
-            st.table(df_final)
-
-            st.subheader("Technical Analysis Graphs")
-            graph_cols = st.columns(2)
-            for idx, r in enumerate(all_results):
-                with graph_cols[idx % 2]:
-                    fig, ax = plt.subplots(figsize=(8, 5))
-                    ax.plot(r['History'].values, color='#2c3e50', linewidth=2, label="Price History")
-                    ax.axhline(y=r['Target'], color='#e74c3c', linestyle='--', label=f"AI Target: {r['Target']:.2f}")
-                    ax.set_title(f"{r['Ticker']} Forecast")
-                    ax.set_facecolor('#fdfdfd')
+                st.divider()
+                st.write(f"### {r['Ticker']} Visualization Suite")
+                
+                # These are the standard intervals provided by yfinance
+                t1, t2, t3, t4, t5, t6 = st.tabs(["1 Day", "1 Week", "1 Month", "1 Year", "5 Years", "MAX"])
+                
+                with t1: # 1-Day Intraday
+                    d = yf.download(r['Ticker'], period="1d", interval="5m", progress=False, auto_adjust=True)
+                    st.line_chart(d['Close'])
+                with t2: # 1-Week
+                    d = yf.download(r['Ticker'], period="5d", interval="30m", progress=False, auto_adjust=True)
+                    st.line_chart(d['Close'])
+                with t3: # 1-Month
+                    d = yf.download(r['Ticker'], period="1mo", interval="1h", progress=False, auto_adjust=True)
+                    st.line_chart(d['Close'])
+                with t4: # 1-Year (Standard benchmark with Target Line)
+                    d = yf.download(r['Ticker'], period="1y", interval="1d", progress=False, auto_adjust=True)
+                    if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
+                    fig, ax = plt.subplots(figsize=(10, 4))
+                    ax.plot(d['Close'].values, color='#2c3e50', label="1 Year History")
+                    ax.axhline(y=r['Target'], color='red', linestyle='--', label=f"AI Target ({selected_period_label})")
                     ax.legend()
                     st.pyplot(fig)
+                with t5: # 5-Years
+                    d = yf.download(r['Ticker'], period="5y", interval="1d", progress=False, auto_adjust=True)
+                    st.line_chart(d['Close'])
+                with t6: # MAX
+                    d = yf.download(r['Ticker'], period="max", interval="1d", progress=False, auto_adjust=True)
+                    st.line_chart(d['Close'])
         else:
-            st.error("No data could be retrieved.")
+            st.error("No data found. Check your tickers or API key.")
