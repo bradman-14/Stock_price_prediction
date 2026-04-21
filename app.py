@@ -124,7 +124,6 @@ if st.sidebar.button("Run Global Analysis"):
                 
                 def plot_pro_chart(ticker, period, interval, target):
                     ticker_obj = yf.Ticker(ticker)
-                    # Detect local timezone of the exchange
                     market_tz = ticker_obj.info.get('exchangeTimezoneName', 'UTC')
                     
                     fetch_p = "7d" if period == "1d" else period
@@ -133,10 +132,14 @@ if st.sidebar.button("Run Global Analysis"):
                     if d.empty: return st.warning("No Data")
                     if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
 
-                    # Timezone and 1D logic
+                    # --- FIXED TIMEZONE LOGIC ---
+                    if d.index.tz is None:
+                        d.index = d.index.tz_localize('UTC')
                     d.index = d.index.tz_convert(market_tz)
+                    
                     if period == "1d":
                         d = d[d.index.date == d.index[-1].date()]
+                    # ----------------------------
 
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=d.index, y=d['Close'], line=dict(color='#00ff88', width=2), name="Price"))
@@ -144,7 +147,6 @@ if st.sidebar.button("Run Global Analysis"):
                     if period != "1d":
                         fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
 
-                    # Professional Chart Config
                     fig.update_layout(
                         template="plotly_dark",
                         hovermode="x unified",
@@ -152,8 +154,8 @@ if st.sidebar.button("Run Global Analysis"):
                             title=f"Time ({market_tz})",
                             showgrid=False,
                             rangebreaks=[
-                                dict(bounds=["sat", "mon"]), # Hide weekends
-                                dict(bounds=[16, 9], pattern="hour") # Hide overnight gaps for most markets
+                                dict(bounds=["sat", "mon"]),
+                                dict(bounds=[16, 9], pattern="hour") 
                             ]
                         ),
                         yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)')
