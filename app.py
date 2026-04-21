@@ -135,8 +135,14 @@ if st.sidebar.button("Run Global Analysis"):
                 def plot_pro_chart(ticker, period, interval, target):
                     try:
                         ticker_obj = yf.Ticker(ticker)
-                        info = ticker_obj.info
-                        market_tz = info.get('exchangeTimezoneName', 'UTC')
+                        
+                        # --- TIMEZONE FIX ---
+                        # If ticker.info fails, we fallback to UTC or IST for India stocks
+                        try:
+                            info = ticker_obj.info
+                            market_tz = info.get('exchangeTimezoneName', 'UTC')
+                        except:
+                            market_tz = 'Asia/Kolkata' if ".NS" in ticker else 'UTC'
                         
                         fetch_p = "7d" if period == "1d" else period
                         d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
@@ -159,7 +165,7 @@ if st.sidebar.button("Run Global Analysis"):
                             connectgaps=True if is_long_term else False
                         ))
                         
-                        # Corrected: Shows on ALL graphs with proper indentation
+                        # AI Target line shows on ALL charts
                         fig.add_hline(
                             y=target, 
                             line_dash="dash", 
@@ -183,9 +189,10 @@ if st.sidebar.button("Run Global Analysis"):
                             yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)', autorange=True)
                         )
                         st.plotly_chart(fig, use_container_width=True)
-                    except:
-                        st.error(f"Could not load chart for {ticker}")
+                    except Exception as e:
+                        st.error(f"Error drawing chart: {e}")
 
+                # Tabs
                 with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
                 with tabs[2]: plot_pro_chart(r['Ticker'], "1mo", "1h", r['Target'])
