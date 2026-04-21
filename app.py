@@ -12,7 +12,7 @@ import tensorflow as tf
 import pytz
 
 # --- Page Setup ---
-st.set_page_config(page_title="my-app", layout="wide")
+st.set_page_config(page_title="Pro-Trader AI", layout="wide")
 st.title("STOCK PRICE PREDICTOR")
 
 if "GNEWS_API_KEY" in st.secrets:
@@ -32,6 +32,7 @@ def get_ticker_from_name(query):
         pass
     return query.upper()
 
+# --- Sidebar / Market Command ---
 st.sidebar.header("Market Command")
 ticker_input = st.sidebar.text_input("Tickers", value="Reliance, Nvidia, Apple")
 
@@ -103,8 +104,10 @@ class UltimateTradingBot:
         
         return {"Ticker": ticker, "Price": last_price, "Target": final_pred, "Move": ((final_pred-last_price)/last_price)*100, "Sent_Mood": word}
 
+# --- Main Execution ---
 if st.sidebar.button("Run Global Analysis"):
-    if not API_KEY: st.error("Enter API Key")
+    if not API_KEY: 
+        st.error("Enter API Key")
     else:
         bot = UltimateTradingBot()
         all_results = []
@@ -122,6 +125,7 @@ if st.sidebar.button("Run Global Analysis"):
                 st.subheader(f"{r['Ticker']} Visualization Suite")
                 tabs = st.tabs(["1D", "1W", "1M", "1Y", "5Y", "10Y", "MAX"])
                 
+                # Internal helper function for plotting
                 def plot_pro_chart(ticker, period, interval, target):
                     ticker_obj = yf.Ticker(ticker)
                     market_tz = ticker_obj.info.get('exchangeTimezoneName', 'UTC')
@@ -129,10 +133,12 @@ if st.sidebar.button("Run Global Analysis"):
                     fetch_p = "7d" if period == "1d" else period
                     d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
                     
-                    if d.empty: return st.warning("No Data")
-                    if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
+                    if d.empty: 
+                        return st.warning("No Data")
+                    if isinstance(d.columns, pd.MultiIndex): 
+                        d.columns = d.columns.get_level_values(0)
 
-                    # --- Timezone Logic ---
+                    # Standardize Timezone
                     if d.index.tz is None:
                         d.index = d.index.tz_localize('UTC')
                     d.index = d.index.tz_convert(market_tz)
@@ -141,22 +147,28 @@ if st.sidebar.button("Run Global Analysis"):
                         d = d[d.index.date == d.index[-1].date()]
 
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=d.index, y=d['Close'], line=dict(color='#00ff88', width=2), name="Price", connectgaps=False))
+                    is_long_term = period in ["1y", "5y", "10y", "max"]
                     
-                    if period not in ["1d", "1w"]:
+                    fig.add_trace(go.Scatter(
+                        x=d.index, 
+                        y=d['Close'], 
+                        line=dict(color='#00ff88', width=2), 
+                        name="Price",
+                        connectgaps=True if is_long_term else False
+                    ))
+                    
+                    if not is_long_term:
                         fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
 
-                    # --- Dynamic Gap Removal ---
-                    breaks = [dict(bounds=["sat", "mon"])] # Always hide weekends
-                    
-                    # Only hide overnight hours for intraday/short-term views
-                    if period in ["1d", "1w"]:
-                        # Indian Markets: Hide 3:30 PM to 9:15 AM
-                        if ".NS" in ticker or ".BO" in ticker:
-                            breaks.append(dict(bounds=[15.5, 9.25], pattern="hour"))
-                        # US Markets: Hide 4:00 PM to 9:30 AM
-                        else:
-                            breaks.append(dict(bounds=[16, 9.5], pattern="hour"))
+                    # Conditional Rangebreaks
+                    breaks = []
+                    if period in ["1d", "1w", "1mo"]:
+                        breaks.append(dict(bounds=["sat", "mon"])) 
+                        if period in ["1d", "1w"]:
+                            if ".NS" in ticker or ".BO" in ticker:
+                                breaks.append(dict(bounds=[15.5, 9.25], pattern="hour"))
+                            else:
+                                breaks.append(dict(bounds=[16, 9.5], pattern="hour"))
 
                     fig.update_layout(
                         template="plotly_dark",
@@ -170,6 +182,7 @@ if st.sidebar.button("Run Global Analysis"):
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
+                # Assign plots to tabs
                 with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
                 with tabs[2]: plot_pro_chart(r['Ticker'], "1mo", "1h", r['Target'])
