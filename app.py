@@ -13,7 +13,7 @@ import pytz
 import time
 
 # --- Page Setup ---
-st.set_page_config(page_title="my-app", layout="wide")
+st.set_page_config(page_title="Pro-Trader AI", layout="wide")
 st.title("STOCK PRICE PREDICTOR")
 
 if "GNEWS_API_KEY" in st.secrets:
@@ -107,12 +107,8 @@ class UltimateTradingBot:
             final_pred = float(self.scaler.inverse_transform(pred)[0][0])
             last_price = float(df_train['Close'].iloc[-1])
             
-            return {"Ticker": ticker, "Price": last_price, "Target": final_pred, "Move": ((final_pred-last_price)/last_price)*100, "Current_Sentiment": word}
-        except Exception as e:
-            if "Rate Limit" in str(e):
-                st.error(f"Yahoo is busy. Retrying {ticker} in 2 seconds...")
-                time.sleep(2)
-                return self.run_analysis(ticker, train_period) 
+            return {"Ticker": ticker, "Price": last_price, "Target": final_pred, "Move": ((final_pred-last_price)/last_price)*100, "Sent_Mood": word}
+        except Exception:
             return None
 
 # --- Main Execution ---
@@ -128,7 +124,6 @@ if st.sidebar.button("Run Global Analysis"):
             with st.spinner(f"Analyzing {s}..."):
                 res = bot.run_analysis(s, selected_period)
                 if res: all_results.append(res)
-                time.sleep(0.5)
 
         if all_results:
             st.table(pd.DataFrame(all_results))
@@ -164,7 +159,7 @@ if st.sidebar.button("Run Global Analysis"):
                             connectgaps=True if is_long_term else False
                         ))
                         
-                        # Added correct indentation for the horizontal line
+                        # Corrected: Shows on ALL graphs with proper indentation
                         fig.add_hline(
                             y=target, 
                             line_dash="dash", 
@@ -188,10 +183,9 @@ if st.sidebar.button("Run Global Analysis"):
                             yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)', autorange=True)
                         )
                         st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
+                    except:
                         st.error(f"Could not load chart for {ticker}")
 
-                # Tab assignments
                 with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
                 with tabs[2]: plot_pro_chart(r['Ticker'], "1mo", "1h", r['Target'])
