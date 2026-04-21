@@ -10,6 +10,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
 import pytz
+import time
 
 # --- Page Setup ---
 st.set_page_config(page_title="Pro-Trader AI", layout="wide")
@@ -24,7 +25,7 @@ def get_ticker_from_name(query):
     query = query.strip()
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(url, headers=headers, timeout=5).json()
         if response['quotes']:
             return response['quotes'][0]['symbol']
@@ -50,7 +51,6 @@ class UltimateTradingBot:
     def __init__(self):
         self.sia = SentimentIntensityAnalyzer()
         self.scaler = MinMaxScaler(feature_range=(0, 1))
-        # REMOVED: self.session logic. YFinance 0.2.40+ handles this internally.
 
     @st.cache_data(ttl=3600)
     def get_sentiment_details(_self, ticker, api_key):
@@ -65,47 +65,56 @@ class UltimateTradingBot:
         except: return 0.0, "API Error"
 
     def run_analysis(self, ticker, train_period):
-        # Let yfinance handle the session internally
-        ticker_obj = yf.Ticker(ticker)
-        hist_check = ticker_obj.history(period="max")
-        if hist_check.empty: return None
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            # Fetching history with a slight delay to avoid rapid-fire blocking
+            hist_check = ticker_obj.history(period="max")
+            
+            if hist_check.empty: 
+                return None
 
-        actual_years = len(hist_check) / 252
-        req_yrs = 10 if train_period == "10y" else 5 if train_period == "5y" else 0
-        
-        if req_yrs > 0 and actual_years < req_yrs:
-            st.warning(f"{ticker}: Only {actual_years:.1f} yrs available. Using max.")
-            df_train = hist_check
-        else:
-            df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
+            actual_years = len(hist_check) / 252
+            req_yrs = 10 if train_period == "10y" else 5 if train_period == "5y" else 0
+            
+            if req_yrs > 0 and actual_years < req_yrs:
+                st.warning(f"{ticker}: Only {actual_years:.1f} yrs available. Using max.")
+                df_train = hist_check
+            else:
+                df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
 
-        if df_train.empty or len(df_train) < lookback: return None
-        if isinstance(df_train.columns, pd.MultiIndex): 
-            df_train.columns = df_train.columns.get_level_values(0)
-        
-        df_train = df_train[['Close']].ffill().dropna()
-        score, word = self.get_sentiment_details(ticker, API_KEY)
-        
-        scaled_data = self.scaler.fit_transform(df_train.values)
-        combined = np.hstack((scaled_data, np.full((len(scaled_data), 1), score)))
+            if df_train.empty or len(df_train) < lookback: return None
+            if isinstance(df_train.columns, pd.MultiIndex): 
+                df_train.columns = df_train.columns.get_level_values(0)
+            
+            df_train = df_train[['Close']].ffill().dropna()
+            score, word = self.get_sentiment_details(ticker, API_KEY)
+            
+            scaled_data = self.scaler.fit_transform(df_train.values)
+            combined = np.hstack((scaled_data, np.full((len(scaled_data), 1), score)))
 
-        X, y = [], []
-        for i in range(lookback, len(combined)):
-            X.append(combined[i-lookback:i])
-            y.append(scaled_data[i, 0])
-        X, y = np.array(X), np.array(y)
+            X, y = [], []
+            for i in range(lookback, len(combined)):
+                X.append(combined[i-lookback:i])
+                y.append(scaled_data[i, 0])
+            X, y = np.array(X), np.array(y)
 
-        tf.keras.backend.clear_session()
-        model = Sequential([LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])), Dropout(0.2), LSTM(32), Dense(1)])
-        model.compile(optimizer='adam', loss='mse')
-        model.fit(X, y, epochs=10, batch_size=32, verbose=0) 
+            tf.keras.backend.clear_session()
+            model = Sequential([LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])), Dropout(0.2), LSTM(32), Dense(1)])
+            model.compile(optimizer='adam', loss='mse')
+            model.fit(X, y, epochs=10, batch_size=32, verbose=0) 
 
-        last_win = combined[-lookback:].reshape(1, lookback, 2)
-        pred = model.predict(last_win, verbose=0)
-        final_pred = float(self.scaler.inverse_transform(pred)[0][0])
-        last_price = float(df_train['Close'].iloc[-1])
-        
-        return {"Ticker": ticker, "Price": last_price, "Target": final_pred, "Move": ((final_pred-last_price)/last_price)*100, "Sent_Mood": word}
+            last_win = combined[-lookback:].reshape(1, lookback, 2)
+            pred = model.predict(last_win, verbose=0)
+            final_pred = float(self.scaler.inverse_transform(pred)[0][0])
+            last_price = float(df_train['Close'].iloc[-1])
+            
+            return {"Ticker": ticker, "Price": last_price, "Target": final_pred, "Move": ((final_pred-last_price)/last_price)*100, "Sent_Mood": word}
+        except Exception as e:
+            if "Rate Limit" in str(e):
+                st.error(f"Yahoo is busy. Retrying {ticker} in 2 seconds...")
+                time.sleep(2)
+                return self.run_analysis(ticker, train_period) # Recursive retry
+            return None
 
 # --- Main Execution ---
 if st.sidebar.button("Run Global Analysis"):
@@ -120,6 +129,7 @@ if st.sidebar.button("Run Global Analysis"):
             with st.spinner(f"Analyzing {s}..."):
                 res = bot.run_analysis(s, selected_period)
                 if res: all_results.append(res)
+                time.sleep(0.5) # Gentle pause between tickers
 
         if all_results:
             st.table(pd.DataFrame(all_results))
@@ -129,58 +139,52 @@ if st.sidebar.button("Run Global Analysis"):
                 tabs = st.tabs(["1D", "1W", "1M", "1Y", "5Y", "10Y", "MAX"])
                 
                 def plot_pro_chart(ticker, period, interval, target):
-                    ticker_obj = yf.Ticker(ticker)
-                    market_tz = ticker_obj.info.get('exchangeTimezoneName', 'UTC')
-                    
-                    fetch_p = "7d" if period == "1d" else period
-                    d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
-                    
-                    if d.empty: 
-                        return st.warning("No Data")
-                    if isinstance(d.columns, pd.MultiIndex): 
-                        d.columns = d.columns.get_level_values(0)
+                    try:
+                        ticker_obj = yf.Ticker(ticker)
+                        info = ticker_obj.info
+                        market_tz = info.get('exchangeTimezoneName', 'UTC')
+                        
+                        fetch_p = "7d" if period == "1d" else period
+                        d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
+                        
+                        if d.empty: return st.warning("No Data")
+                        if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
 
-                    if d.index.tz is None:
-                        d.index = d.index.tz_localize('UTC')
-                    d.index = d.index.tz_convert(market_tz)
-                    
-                    if period == "1d":
-                        d = d[d.index.date == d.index[-1].date()]
+                        if d.index.tz is None: d.index = d.index.tz_localize('UTC')
+                        d.index = d.index.tz_convert(market_tz)
+                        
+                        if period == "1d": d = d[d.index.date == d.index[-1].date()]
 
-                    fig = go.Figure()
-                    is_long_term = period in ["1y", "5y", "10y", "max"]
-                    
-                    fig.add_trace(go.Scatter(
-                        x=d.index, 
-                        y=d['Close'], 
-                        line=dict(color='#00ff88', width=2), 
-                        name="Price",
-                        connectgaps=True if is_long_term else False
-                    ))
-                    
-                    if not is_long_term:
-                        fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
+                        fig = go.Figure()
+                        is_long_term = period in ["1y", "5y", "10y", "max"]
+                        
+                        fig.add_trace(go.Scatter(
+                            x=d.index, y=d['Close'], 
+                            line=dict(color='#00ff88', width=2), 
+                            name="Price",
+                            connectgaps=True if is_long_term else False
+                        ))
+                        
+                        if not is_long_term:
+                            fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
 
-                    breaks = []
-                    if period in ["1d", "1w", "1mo"]:
-                        breaks.append(dict(bounds=["sat", "mon"])) 
-                        if period in ["1d", "1w"]:
-                            if ".NS" in ticker or ".BO" in ticker:
-                                breaks.append(dict(bounds=[15.5, 9.25], pattern="hour"))
-                            else:
-                                breaks.append(dict(bounds=[16, 9.5], pattern="hour"))
+                        breaks = []
+                        if period in ["1d", "1w", "1mo"]:
+                            breaks.append(dict(bounds=["sat", "mon"])) 
+                            if period in ["1d", "1w"]:
+                                if ".NS" in ticker or ".BO" in ticker:
+                                    breaks.append(dict(bounds=[15.5, 9.25], pattern="hour"))
+                                else:
+                                    breaks.append(dict(bounds=[16, 9.5], pattern="hour"))
 
-                    fig.update_layout(
-                        template="plotly_dark",
-                        hovermode="x unified",
-                        xaxis=dict(
-                            title=f"Time ({market_tz})",
-                            showgrid=False,
-                            rangebreaks=breaks
-                        ),
-                        yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)', autorange=True)
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                        fig.update_layout(
+                            template="plotly_dark", hovermode="x unified",
+                            xaxis=dict(title=f"Time ({market_tz})", showgrid=False, rangebreaks=breaks),
+                            yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)', autorange=True)
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    except:
+                        st.error(f"Could not load chart for {ticker} (Yahoo Rate Limit)")
 
                 with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
