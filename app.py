@@ -132,20 +132,31 @@ if st.sidebar.button("Run Global Analysis"):
                     if d.empty: return st.warning("No Data")
                     if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
 
-                    # --- FIXED TIMEZONE LOGIC ---
+                    # --- Timezone Logic ---
                     if d.index.tz is None:
                         d.index = d.index.tz_localize('UTC')
                     d.index = d.index.tz_convert(market_tz)
                     
                     if period == "1d":
                         d = d[d.index.date == d.index[-1].date()]
-                    # ----------------------------
 
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=d.index, y=d['Close'], line=dict(color='#00ff88', width=2), name="Price"))
+                    fig.add_trace(go.Scatter(x=d.index, y=d['Close'], line=dict(color='#00ff88', width=2), name="Price", connectgaps=False))
                     
-                    if period != "1d":
+                    if period not in ["1d", "1w"]:
                         fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
+
+                    # --- Dynamic Gap Removal ---
+                    breaks = [dict(bounds=["sat", "mon"])] # Always hide weekends
+                    
+                    # Only hide overnight hours for intraday/short-term views
+                    if period in ["1d", "1w"]:
+                        # Indian Markets: Hide 3:30 PM to 9:15 AM
+                        if ".NS" in ticker or ".BO" in ticker:
+                            breaks.append(dict(bounds=[15.5, 9.25], pattern="hour"))
+                        # US Markets: Hide 4:00 PM to 9:30 AM
+                        else:
+                            breaks.append(dict(bounds=[16, 9.5], pattern="hour"))
 
                     fig.update_layout(
                         template="plotly_dark",
@@ -153,12 +164,9 @@ if st.sidebar.button("Run Global Analysis"):
                         xaxis=dict(
                             title=f"Time ({market_tz})",
                             showgrid=False,
-                            rangebreaks=[
-                                dict(bounds=["sat", "mon"]),
-                                dict(bounds=[16, 9], pattern="hour") 
-                            ]
+                            rangebreaks=breaks
                         ),
-                        yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)')
+                        yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)', autorange=True)
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
