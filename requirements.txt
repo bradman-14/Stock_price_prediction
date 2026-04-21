@@ -1,11 +1,11 @@
 streamlit
-yfinance
+yfinance>=0.2.40
 pandas
 numpy
 requests
-matplotlib
+plotly
 vaderSentiment
 scikit-learn
-tensorflow
-plotly
+tensorflow-cpu
 pytz
+curl_cffi
