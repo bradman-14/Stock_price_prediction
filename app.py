@@ -1,6 +1,6 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
+import pd as pd
 import numpy as np
 import requests
 import plotly.graph_objects as go
@@ -9,19 +9,17 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
-from datetime import datetime
+import pytz
 
 # --- Page Setup ---
 st.set_page_config(page_title="Pro-Trader AI", layout="wide")
 st.title("STOCK PRICE PREDICTOR")
 
-# --- API Key Management ---
 if "GNEWS_API_KEY" in st.secrets:
     API_KEY = st.secrets["GNEWS_API_KEY"]
 else:
     API_KEY = st.sidebar.text_input("GNews API Key", type="password")
 
-# --- Ticker Search ---
 def get_ticker_from_name(query):
     query = query.strip()
     try:
@@ -34,9 +32,8 @@ def get_ticker_from_name(query):
         pass
     return query.upper()
 
-# --- Sidebar ---
 st.sidebar.header("Strategy Controller")
-ticker_input = st.sidebar.text_input("Tickers", value="Nvidia, Reliance, Apple")
+ticker_input = st.sidebar.text_input("Tickers", value="Reliance, Nvidia, Apple")
 
 time_options = {
     "1 Month": "1mo", "6 Months": "6mo", "1 Year": "1y", 
@@ -66,19 +63,15 @@ class UltimateTradingBot:
         except: return 0.0, "API Error"
 
     def run_analysis(self, ticker, train_period):
-        # Check actual available history first
-        full_info = yf.Ticker(ticker)
-        hist_check = full_info.history(period="max")
-        
-        if hist_check.empty:
-            return None
+        ticker_obj = yf.Ticker(ticker)
+        hist_check = ticker_obj.history(period="max")
+        if hist_check.empty: return None
 
-        # Logic for prompting user if history is shorter than requested
         actual_years = len(hist_check) / 252
-        requested_years = 10 if train_period == "10y" else 5 if train_period == "5y" else 0
+        req_yrs = 10 if train_period == "10y" else 5 if train_period == "5y" else 0
         
-        if requested_years > 0 and actual_years < requested_years:
-            st.warning(f"{ticker} has only {actual_years:.1f} years of data. Training on full available history instead of {train_period}.")
+        if req_yrs > 0 and actual_years < req_yrs:
+            st.warning(f"{ticker}: Only {actual_years:.1f} yrs available. Using max.")
             df_train = hist_check
         else:
             df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
@@ -89,10 +82,8 @@ class UltimateTradingBot:
         df_train = df_train[['Close']].ffill().dropna()
         score, word = self.get_sentiment_details(ticker, API_KEY)
         
-        data = df_train.values
-        scaled_data = self.scaler.fit_transform(data)
-        sent_feat = np.full((len(scaled_data), 1), score)
-        combined = np.hstack((scaled_data, sent_feat))
+        scaled_data = self.scaler.fit_transform(df_train.values)
+        combined = np.hstack((scaled_data, np.full((len(scaled_data), 1), score)))
 
         X, y = [], []
         for i in range(lookback, len(combined)):
@@ -101,12 +92,7 @@ class UltimateTradingBot:
         X, y = np.array(X), np.array(y)
 
         tf.keras.backend.clear_session()
-        model = Sequential([
-            LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])),
-            Dropout(0.2),
-            LSTM(32),
-            Dense(1)
-        ])
+        model = Sequential([LSTM(64, return_sequences=True, input_shape=(X.shape[1], X.shape[2])), Dropout(0.2), LSTM(32), Dense(1)])
         model.compile(optimizer='adam', loss='mse')
         model.fit(X, y, epochs=10, batch_size=32, verbose=0) 
 
@@ -114,64 +100,70 @@ class UltimateTradingBot:
         pred = model.predict(last_win, verbose=0)
         final_pred = float(self.scaler.inverse_transform(pred)[0][0])
         last_price = float(df_train['Close'].iloc[-1])
-        move = ((final_pred - last_price) / last_price) * 100
         
-        return {
-            "Ticker": ticker, "Price": last_price, "Target": final_pred,
-            "Move": move, "Sent_Mood": word
-        }
+        return {"Ticker": ticker, "Price": last_price, "Target": final_pred, "Move": ((final_pred-last_price)/last_price)*100, "Sent_Mood": word}
 
-# --- Execution ---
 if st.sidebar.button("Run Global Analysis"):
-    if not API_KEY: st.error("Please enter API Key.")
+    if not API_KEY: st.error("Enter API Key")
     else:
         bot = UltimateTradingBot()
         all_results = []
         resolved_tickers = [get_ticker_from_name(item) for item in raw_inputs]
         
         for s in resolved_tickers:
-            with st.spinner(f"Neural Engine processing {s}..."):
+            with st.spinner(f"Analyzing {s}..."):
                 res = bot.run_analysis(s, selected_period)
                 if res: all_results.append(res)
 
         if all_results:
-            st.subheader(f"Strategic Verdicts (Trained on {selected_period_label})")
-            summary_data = [[r['Ticker'], f"{r['Price']:.2f}", f"{r['Target']:.2f}", f"{r['Move']:+.2f}%", r['Sent_Mood']] for r in all_results]
-            st.table(pd.DataFrame(summary_data, columns=["Ticker", "Price", "AI Target", "Move %", "Sentiment"]))
-
+            st.table(pd.DataFrame(all_results))
             for r in all_results:
                 st.divider()
-                st.write(f"### {r['Ticker']} Visualization Suite")
-                
+                st.subheader(f"{r['Ticker']} Visualization Suite")
                 tabs = st.tabs(["1D", "1W", "1M", "1Y", "5Y", "10Y", "MAX"])
                 
-                def plot_interactive_stock(ticker, period, interval, target):
-                    # Special handling for 1D to get full day session
-                    if period == "1d":
-                        d = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
-                    else:
-                        d = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+                def plot_pro_chart(ticker, period, interval, target):
+                    ticker_obj = yf.Ticker(ticker)
+                    # Detect local timezone of the exchange
+                    market_tz = ticker_obj.info.get('exchangeTimezoneName', 'UTC')
                     
-                    if d.empty: return st.warning(f"No data for {period}")
+                    fetch_p = "7d" if period == "1d" else period
+                    d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
+                    
+                    if d.empty: return st.warning("No Data")
                     if isinstance(d.columns, pd.MultiIndex): d.columns = d.columns.get_level_values(0)
-                    
+
+                    # Timezone and 1D logic
+                    d.index = d.index.tz_convert(market_tz)
+                    if period == "1d":
+                        d = d[d.index.date == d.index[-1].date()]
+
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=d.index, y=d['Close'], mode='lines', name='Price', line=dict(color='#00ff88', width=2)))
+                    fig.add_trace(go.Scatter(x=d.index, y=d['Close'], line=dict(color='#00ff88', width=2), name="Price"))
                     
                     if period != "1d":
-                        fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", 
-                                      annotation_text=f"AI Target: {target:.2f}", annotation_position="top left")
-                    
-                    fig.update_layout(title=f"{ticker} - {period} Analysis", template="plotly_dark", 
-                                      xaxis_title="Time/Date", yaxis_title="Price", hovermode="x unified", height=500)
+                        fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
+
+                    # Professional Chart Config
+                    fig.update_layout(
+                        template="plotly_dark",
+                        hovermode="x unified",
+                        xaxis=dict(
+                            title=f"Time ({market_tz})",
+                            showgrid=False,
+                            rangebreaks=[
+                                dict(bounds=["sat", "mon"]), # Hide weekends
+                                dict(bounds=[16, 9], pattern="hour") # Hide overnight gaps for most markets
+                            ]
+                        ),
+                        yaxis=dict(title="Price", showgrid=True, gridcolor='rgba(255,255,255,0.1)')
+                    )
                     st.plotly_chart(fig, use_container_width=True)
 
-                with tabs[0]: plot_interactive_stock(r['Ticker'], "1d", "1m", r['Target'])
-                with tabs[1]: plot_interactive_stock(r['Ticker'], "5d", "30m", r['Target'])
-                with tabs[2]: plot_interactive_stock(r['Ticker'], "1mo", "1h", r['Target'])
-                with tabs[3]: plot_interactive_stock(r['Ticker'], "1y", "1d", r['Target'])
-                with tabs[4]: plot_interactive_stock(r['Ticker'], "5y", "1d", r['Target'])
-                with tabs[5]: plot_interactive_stock(r['Ticker'], "10y", "1d", r['Target'])
-                with tabs[6]: plot_interactive_stock(r['Ticker'], "max", "1d", r['Target'])
-        else:
-            st.error("Data error.")
+                with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
+                with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
+                with tabs[2]: plot_pro_chart(r['Ticker'], "1mo", "1h", r['Target'])
+                with tabs[3]: plot_pro_chart(r['Ticker'], "1y", "1d", r['Target'])
+                with tabs[4]: plot_pro_chart(r['Ticker'], "5y", "1d", r['Target'])
+                with tabs[5]: plot_pro_chart(r['Ticker'], "10y", "1d", r['Target'])
+                with tabs[6]: plot_pro_chart(r['Ticker'], "max", "1d", r['Target'])
