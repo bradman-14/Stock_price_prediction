@@ -8,3 +8,4 @@ vaderSentiment
 scikit-learn
 tensorflow
 plotly
+pytz
