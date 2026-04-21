@@ -10,6 +10,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 import tensorflow as tf
 import pytz
+from requests import Session
 
 # --- Page Setup ---
 st.set_page_config(page_title="Pro-Trader AI", layout="wide")
@@ -24,7 +25,7 @@ def get_ticker_from_name(query):
     query = query.strip()
     try:
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=5).json()
         if response['quotes']:
             return response['quotes'][0]['symbol']
@@ -50,6 +51,11 @@ class UltimateTradingBot:
     def __init__(self):
         self.sia = SentimentIntensityAnalyzer()
         self.scaler = MinMaxScaler(feature_range=(0, 1))
+        # Create a session to avoid Rate Limits
+        self.session = Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        })
 
     @st.cache_data(ttl=3600)
     def get_sentiment_details(_self, ticker, api_key):
@@ -64,7 +70,8 @@ class UltimateTradingBot:
         except: return 0.0, "API Error"
 
     def run_analysis(self, ticker, train_period):
-        ticker_obj = yf.Ticker(ticker)
+        # Use session for Ticker info
+        ticker_obj = yf.Ticker(ticker, session=self.session)
         hist_check = ticker_obj.history(period="max")
         if hist_check.empty: return None
 
@@ -75,10 +82,13 @@ class UltimateTradingBot:
             st.warning(f"{ticker}: Only {actual_years:.1f} yrs available. Using max.")
             df_train = hist_check
         else:
-            df_train = yf.download(ticker, period=train_period, interval="1d", progress=False, auto_adjust=True)
+            # Use session for Download
+            df_train = yf.download(ticker, period=train_period, interval="1d", 
+                                   session=self.session, progress=False, auto_adjust=True)
 
         if df_train.empty or len(df_train) < lookback: return None
-        if isinstance(df_train.columns, pd.MultiIndex): df_train.columns = df_train.columns.get_level_values(0)
+        if isinstance(df_train.columns, pd.MultiIndex): 
+            df_train.columns = df_train.columns.get_level_values(0)
         
         df_train = df_train[['Close']].ffill().dropna()
         score, word = self.get_sentiment_details(ticker, API_KEY)
@@ -125,20 +135,20 @@ if st.sidebar.button("Run Global Analysis"):
                 st.subheader(f"{r['Ticker']} Visualization Suite")
                 tabs = st.tabs(["1D", "1W", "1M", "1Y", "5Y", "10Y", "MAX"])
                 
-                # Internal helper function for plotting
                 def plot_pro_chart(ticker, period, interval, target):
-                    ticker_obj = yf.Ticker(ticker)
+                    # Use the shared session from the 'bot' instance
+                    ticker_obj = yf.Ticker(ticker, session=bot.session)
                     market_tz = ticker_obj.info.get('exchangeTimezoneName', 'UTC')
                     
                     fetch_p = "7d" if period == "1d" else period
-                    d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
+                    d = yf.download(ticker, period=fetch_p, interval=interval, 
+                                    session=bot.session, progress=False, auto_adjust=True)
                     
                     if d.empty: 
                         return st.warning("No Data")
                     if isinstance(d.columns, pd.MultiIndex): 
                         d.columns = d.columns.get_level_values(0)
 
-                    # Standardize Timezone
                     if d.index.tz is None:
                         d.index = d.index.tz_localize('UTC')
                     d.index = d.index.tz_convert(market_tz)
@@ -160,7 +170,6 @@ if st.sidebar.button("Run Global Analysis"):
                     if not is_long_term:
                         fig.add_hline(y=target, line_dash="dash", line_color="#ff3333", annotation_text=f"Target: {target:.2f}")
 
-                    # Conditional Rangebreaks
                     breaks = []
                     if period in ["1d", "1w", "1mo"]:
                         breaks.append(dict(bounds=["sat", "mon"])) 
@@ -182,7 +191,6 @@ if st.sidebar.button("Run Global Analysis"):
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
-                # Assign plots to tabs
                 with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
                 with tabs[2]: plot_pro_chart(r['Ticker'], "1mo", "1h", r['Target'])
