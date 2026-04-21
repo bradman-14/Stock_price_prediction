@@ -1,5 +1,5 @@
 streamlit
-yfinance>=0.2.40
+yfinance>=0.2.54
 pandas
 numpy
 requests
@@ -8,4 +8,4 @@ vaderSentiment
 scikit-learn
 tensorflow-cpu
 pytz
-curl_cffi
+curl_cffi>=0.11.0
