@@ -136,13 +136,26 @@ if st.sidebar.button("Run Global Analysis"):
                     try:
                         ticker_obj = yf.Ticker(ticker)
                         
-                        # --- TIMEZONE FIX ---
-                        # If ticker.info fails, we fallback to UTC or IST for India stocks
+                        # --- SMART TIMEZONE FALLBACK ---
+                        # We define common global suffixes to ensure conversion even if .info fails
+                        tz_map = {
+                            ".NS": "Asia/Kolkata", ".BO": "Asia/Kolkata", # India
+                            ".L": "Europe/London", ".DE": "Europe/Berlin", # Europe
+                            ".HK": "Asia/Hong_Kong", ".T": "Asia/Tokyo",   # Asia
+                            ".AX": "Australia/Sydney"                      # Australia
+                        }
+                        
                         try:
+                            # Attempt to get real-time info from Yahoo first
                             info = ticker_obj.info
                             market_tz = info.get('exchangeTimezoneName', 'UTC')
                         except:
-                            market_tz = 'Asia/Kolkata' if ".NS" in ticker else 'UTC'
+                            # Fallback logic based on suffix or default to US
+                            market_tz = "America/New_York" # Default for US stocks
+                            for suffix, tz in tz_map.items():
+                                if ticker.endswith(suffix):
+                                    market_tz = tz
+                                    break
                         
                         fetch_p = "7d" if period == "1d" else period
                         d = yf.download(ticker, period=fetch_p, interval=interval, progress=False, auto_adjust=True)
@@ -165,7 +178,7 @@ if st.sidebar.button("Run Global Analysis"):
                             connectgaps=True if is_long_term else False
                         ))
                         
-                        # AI Target line shows on ALL charts
+                        # --- AI TARGET LINE (ALWAYS VISIBLE) ---
                         fig.add_hline(
                             y=target, 
                             line_dash="dash", 
@@ -192,7 +205,7 @@ if st.sidebar.button("Run Global Analysis"):
                     except Exception as e:
                         st.error(f"Error drawing chart: {e}")
 
-                # Tabs
+                # Tabs assignment
                 with tabs[0]: plot_pro_chart(r['Ticker'], "1d", "1m", r['Target'])
                 with tabs[1]: plot_pro_chart(r['Ticker'], "5d", "30m", r['Target'])
                 with tabs[2]: plot_pro_chart(r['Ticker'], "1mo", "1h", r['Target'])
