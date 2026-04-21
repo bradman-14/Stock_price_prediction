@@ -12,7 +12,7 @@ import tensorflow as tf
 import pytz
 
 # --- Page Setup ---
-st.set_page_config(page_title="Pro-Trader AI", layout="wide")
+st.set_page_config(page_title="my-app", layout="wide")
 st.title("STOCK PRICE PREDICTOR")
 
 if "GNEWS_API_KEY" in st.secrets:
@@ -32,7 +32,7 @@ def get_ticker_from_name(query):
         pass
     return query.upper()
 
-st.sidebar.header("Strategy Controller")
+st.sidebar.header("Market Command")
 ticker_input = st.sidebar.text_input("Tickers", value="Reliance, Nvidia, Apple")
 
 time_options = {
