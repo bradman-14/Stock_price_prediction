@@ -6,6 +6,6 @@ requests
 plotly
 vaderSentiment
 scikit-learn
-tensorflow-cpu
+tensorflow
 pytz
 curl_cffi>=0.11.0
