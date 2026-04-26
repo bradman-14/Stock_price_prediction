@@ -4,13 +4,11 @@ FROM python:3.10-slim
 # Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies needed for libraries like TensorFlow
+# Install only the essential system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    software-properties-common \
     && rm -rf /var/lib/apt/lists/*
-
 # Copy requirements first to leverage Docker's caching layer
 COPY requirements.txt .
 
