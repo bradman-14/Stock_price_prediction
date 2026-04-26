@@ -1,0 +1,42 @@
+name: Docker Build Check
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    # We set up Docker's build tool properly here
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Docker Image
+      run: |
+        # This builds your image and tags it as 'latest'
+        docker build -t stock-predictor:latest .
+        
+    - name: Verify Container Health
+      run: |
+        # Start the container in the background
+        docker run -d --name test-app stock-predictor:latest
+        
+        # Give it 15 seconds to initialize (AI models take time to load)
+        sleep 15
+        
+        # Check if the container is still 'Up'
+        if [ "$(docker inspect -f '{{.State.Running}}' test-app)" == "true" ]; then
+          echo "Container is running successfully!"
+          docker stop test-app
+        else
+          echo "Container failed to start!"
+          docker logs test-app
+          exit 1
+        fi
