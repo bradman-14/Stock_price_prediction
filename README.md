@@ -1,46 +1,56 @@
-# STOCK PRICE PREDICTION TOOL
-### *An Intelligent Financial Agent for Predictive Market Analysis*
+#  AI-Powered Stock Price Predictor & Sentiment Analyzer
 
-## Project Overview
-The **Pro-Trader AI Command Dashboard** is a high-performance financial tool designed to bridge the gap between raw market data and actionable intelligence. In a world where stock prices are influenced as much by news headlines as by historical patterns, this project implements a **Multi-Modal AI approach** to forecast price targets.
-
-By combining **Deep Learning (LSTM)** for technical patterns and **Natural Language Processing (NLP)** for market sentiment, the dashboard offers a holistic view of a stock's potential "Next Move."
-
----
-
-## How the AI Works
-
-### 1. The "Memory" (LSTM Neural Networks)
-Unlike traditional moving averages, this project uses **Long Short-Term Memory (LSTM)** networks. 
-* **The Logic:** Stock data is a "Time-Series." LSTMs are unique because they have a "forget gate," allowing the AI to remember long-term trends (like a 60-day momentum) while ignoring short-term "noise."
-* **The Process:** The model analyzes the last 60 days of closing prices to predict the 61st day.
-
-### 2. The "Emotion" (VADER Sentiment Analysis)
-Markets aren't just numbers; they are driven by human emotion.
-* **The Logic:** If a stock has great technicals but the news is full of "lawsuits" or "earnings misses," the price will likely drop.
-* **The Process:** The system scrapes real-time headlines via the **GNews API** and calculates a "Compound Polarity Score." This score acts as a secondary weight for the AI's final verdict.
-
-### 3. The "Translator" (Ticker Resolution Layer)
-To make the app user-friendly, I implemented a search layer that allows users to type "Google" or "Reliance" instead of remembering exchange tickers. It uses the **Yahoo Finance Search API** to resolve names to symbols in real-time.
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+[![Docker](https://img.shields.io/badge/Container-Docker-2496ED.svg)](https://www.docker.com/)
+[![TensorFlow](https://img.shields.io/badge/ML-TensorFlow-FF6F00.svg)](https://www.tensorflow.org/)
 
 ---
 
+##  The Problem
+Retail investors often struggle to balance **quantitative data** (historical prices) with **qualitative news** (market sentiment). Technical indicators alone don't account for "panic selling" or "hype," while news reading is too slow for human processing. 
 
-## Visual Features
-* **Interactive Dashboard:** A clean, tabular summary of Prices, AI Targets, and Risk Levels.
-* **Dynamic Charting:** Matplotlib-generated graphs that overlay the **AI-Predicted Target Line** on top of historical price action.
-* **Risk Categorization:** Real-time calculation of volatility to label stocks as 🟢 Low, 🟡 Moderate, or 🔴 High Risk.
-
----
-
-## Technical Stack
-* **Frontend:** Streamlit (UI/UX)
-* **Data:** yFinance (Market Data) & GNews (Sentiment Data)
-* **AI/ML:** TensorFlow/Keras (LSTM), Scikit-Learn (Scaling)
-* **Language:** Python 3.11
+**The Solution:** This application bridges the gap by combining an **LSTM Neural Network** (for pattern recognition) with **VaderSentiment Analysis** (for emotional context), providing a unified "Buy/Sell/Hold" signal based on both math and mood.
 
 ---
 
-## Disclaimer
-*This project is an AI-driven research tool and does not constitute financial advice. Predictive models are based on probabilities and historical data; market conditions can change rapidly.*
+##  Unique Selling Propositions (USP)
+* **Hybrid Intelligence:** Unlike standard predictors, this integrates real-time financial news sentiment scores directly into the analysis.
+* **Zero-Config Deployment:** Fully Dockerized to eliminate "it works on my machine" issues.
+* **Dynamic Retraining:** The LSTM model is trained on-the-fly based on the user's selected historical window.
+* **Cross-Platform ARM Compatibility:** Optimized specifically to run on modern Apple Silicon (M-series) and Linux environments.
 
+---
+
+##  Tech Stack
+| Category | Technology |
+| :--- | :--- |
+| **Frontend** | Streamlit (Python-based Web Framework) |
+| **Data Fetching** | YFinance (Yahoo Finance API), GNews API |
+| **Deep Learning** | TensorFlow / Keras (LSTM Architecture) |
+| **NLP** | VaderSentiment (Lexicon and Rule-based Sentiment Analysis) |
+| **Technical Analysis** | Pandas & NumPy (SMA, EMA, RSI calculations) |
+| **Visualizations** | Plotly (Interactive Candlestick & Trend Charts) |
+| **Containerization** | Docker (Alpine-based Python Images) |
+
+---
+
+##  What the UI Provides
+1.  **Sidebar Configuration:** Select your Ticker (AAPL, TSLA, BTC-USD) and training duration.
+2.  **Live Market Metrics:** View Current Price, Day Change, and Volume at a glance.
+3.  **Sentiment Pulse:** A gauge showing if current news headlines are Bullish, Bearish, or Neutral.
+4.  **Technical Dashboard:** Interactive Plotly charts with moving averages and RSI overlays.
+5.  **AI Forecast:** A visual comparison of "Actual" vs. "Predicted" prices for the upcoming period.
+
+---
+
+##  Containerization & Local Setup
+
+### 1. Prerequisites
+* [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed.
+* Git installed.
+
+### 2. Clone & Enter
+```bash
+git clone [https://github.com/bradman-14/Stock_price_prediction.git](https://github.com/bradman-14/Stock_price_prediction.git)
+cd Stock_price_prediction
